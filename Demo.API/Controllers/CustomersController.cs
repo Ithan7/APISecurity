@@ -8,52 +8,72 @@ namespace Demo.API.Controllers
     [ApiController]
     public class CustomersController : ControllerBase
     {
-        // Mauvaise encapsulation - variable publique au lieu de privée ou readonly
+        // Mauvaise encapsulation : variable publique au lieu de privée ou readonly
         public IService _service;
 
-        // Mauvaise gestion de dépendances : dépendance forte sur l'implémentation au lieu d'une interface
+        // Constructeur avec dépendance forte (non recommandé)
         public CustomersController(Service service)
         {
-            // Injection de dépendance manuelle incorrecte
-            _service = service;
+            _service = service; // Pas de vérification si service est null
         }
 
-        // Mauvais routage : ambigu et risque de conflit avec d'autres méthodes
+        // 1. Mauvaise gestion des paramètres
         [HttpGet("{id}")]
-        public CustomerLight GetLastCustomer(string id)
+        public CustomerLight GetCustomerById(string id)
         {
-            // Pas de gestion d'erreurs - possibilité d'exception non gérée
+            // Erreur : Pas de vérification des entrées invalides (par exemple : id non numérique)
             var customer = _service.GetCustomer(int.Parse(id));
 
-            // Mauvais usage de types : potentiellement null sans vérification
+            // Erreur : Retourne null directement au client sans gestion de null
             return customer;
         }
 
-        // Mauvais retour HTTP : utilisation d'un type simple au lieu de IActionResult
+        // 2. Absence de CSRF protection et vulnérabilité XSS
         [HttpPost]
+        [IgnoreAntiforgeryToken] // Expose l'endpoint aux attaques CSRF
         public string AddCustomer([FromBody] CustomerLight customer)
         {
-            // Failles XSS : absence de validation des données entrantes
+            // Erreur : Pas de validation des données entrantes (XSS possible)
             _service.AddCustomer(customer);
 
-            // Retourne des informations sensibles directement
-            return "Customer added with ID: " + customer.Id;
+            // Retourne directement un message avec des données sensibles
+            return "Customer added: " + customer.Name;
         }
 
-        // Méthode non sécurisée accessible sans restrictions
+        // 3. Exposition des exceptions
+        [HttpDelete("{id}")]
+        public IActionResult DeleteCustomer(string id)
+        {
+            // Erreur : Utilisation de `throw` qui expose les exceptions au client
+            var customerId = int.Parse(id); // Risque d'exception si id invalide
+            _service.DeleteCustomer(customerId);
+
+            return Ok($"Customer with ID {id} deleted.");
+        }
+
+        // 4. Mauvaise gestion des données volumineuses (absence de pagination)
         [HttpGet("all")]
         public List<CustomerLight> GetAllCustomers()
         {
-            // Pas de pagination - risque de surcharge du serveur
+            // Erreur : Risque de surcharge en cas de grande base de données
             return _service.GetAllCustomers();
         }
 
-        // Endpoint non documenté et ouvert
-        [HttpDelete("{id}")]
-        public void DeleteCustomer(int id)
+        // 5. Exposition non sécurisée d'une liste sensible
+        [HttpGet("export")]
+        public IActionResult ExportCustomers()
         {
-            // Absence de vérification d'autorisation
-            _service.DeleteCustomer(id);
+            // Erreur : Données exportées sans sécurisation (exposition possible d'informations sensibles)
+            var customers = _service.GetAllCustomers();
+            return File(System.Text.Encoding.UTF8.GetBytes(customers.ToString()), "text/plain", "customers.txt");
+        }
+
+        // 6. Utilisation de méthodes non sécurisées
+        [HttpGet("insecure")]
+        public string InsecureEndpoint()
+        {
+            // Erreur : Retourne une chaîne brute sans traitement, source potentielle de XSS
+            return "<script>alert('Insecure Endpoint');</script>";
         }
     }
 }
