@@ -1,6 +1,8 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Demo.BL;
 using Demo.Domain;
+using System.IO;
+using System.Text;
 
 namespace Demo.API.Controllers
 {
@@ -8,72 +10,70 @@ namespace Demo.API.Controllers
     [ApiController]
     public class CustomersController : ControllerBase
     {
-        // Mauvaise encapsulation : variable publique au lieu de privée ou readonly
         public IService _service;
 
-        // Constructeur avec dépendance forte (non recommandé)
-        public CustomersController(Service service)
+        public CustomersController(IService service)
         {
-            _service = service; // Pas de vérification si service est null
+            // Injection de dépendances incorrecte - risque d'exposer l'application si le service est null
+            _service = service ?? throw new ArgumentNullException(nameof(service));
         }
 
-        // 1. Mauvaise gestion des paramètres
-        [HttpGet("{id}")]
-        public CustomerLight GetCustomerById(string id)
+        // 1. **Injection SQL** : Utilisation directe des paramètres non sécurisés
+        [HttpGet("find/{name}")]
+        public IActionResult FindCustomerByName(string name)
         {
-            // Erreur : Pas de vérification des entrées invalides (par exemple : id non numérique)
-            var customer = _service.GetCustomer(int.Parse(id));
-
-            // Erreur : Retourne null directement au client sans gestion de null
-            return customer;
+            var query = $"SELECT * FROM Customers WHERE Name = '{name}'"; // Vulnérabilité SQL Injection
+            return Ok($"Executing Query: {query}");
         }
 
-        // 2. Absence de CSRF protection et vulnérabilité XSS
-        [HttpPost]
-        [IgnoreAntiforgeryToken] // Expose l'endpoint aux attaques CSRF
-        public string AddCustomer([FromBody] CustomerLight customer)
-        {
-            // Erreur : Pas de validation des données entrantes (XSS possible)
-            _service.AddCustomer(customer);
-
-            // Retourne directement un message avec des données sensibles
-            return "Customer added: " + customer.Name;
-        }
-
-        // 3. Exposition des exceptions
+        // 2. **Exposition d'exceptions sensibles**
         [HttpDelete("{id}")]
         public IActionResult DeleteCustomer(string id)
         {
-            // Erreur : Utilisation de `throw` qui expose les exceptions au client
-            var customerId = int.Parse(id); // Risque d'exception si id invalide
+            // Exposition brute d'une exception - pas de gestion sécurisée
+            var customerId = int.Parse(id); // Risque d'exception pour valeur non numérique
             _service.DeleteCustomer(customerId);
-
-            return Ok($"Customer with ID {id} deleted.");
+            return Ok($"Deleted customer with ID: {id}");
         }
 
-        // 4. Mauvaise gestion des données volumineuses (absence de pagination)
+        // 3. **XSS** : Retourne des données brutes sans encodage
+        [HttpGet("insecure-output")]
+        public string InsecureOutput(string input)
+        {
+            return $"<html><body><h1>Welcome, {input}</h1></body></html>"; // XSS possible si input contient des scripts
+        }
+
+        // 4. **CSRF** : Endpoint POST sans protection
+        [HttpPost("add")]
+        [IgnoreAntiforgeryToken] // Désactivation explicite de CSRF token
+        public string AddCustomer([FromBody] CustomerLight customer)
+        {
+            _service.AddCustomer(customer);
+            return $"Customer {customer.Name} added!";
+        }
+
+        // 5. **Mauvaise gestion des fichiers** : Exposition d'un fichier arbitraire
+        [HttpGet("download")]
+        public IActionResult DownloadFile(string filePath)
+        {
+            // Aucune validation du chemin - risque de Path Traversal
+            var fileContent = System.IO.File.ReadAllBytes(filePath);
+            return File(fileContent, "application/octet-stream", Path.GetFileName(filePath));
+        }
+
+        // 6. **Exposition d'informations sensibles**
+        [HttpGet("debug-info")]
+        public IActionResult DebugInfo()
+        {
+            var serverInfo = $"Server Version: {System.Environment.Version} | OS: {System.Environment.OSVersion}";
+            return Ok(serverInfo); // Exposition d'informations sensibles
+        }
+
+        // 7. **Données volumineuses sans restriction** : Endpoint non paginé
         [HttpGet("all")]
         public List<CustomerLight> GetAllCustomers()
         {
-            // Erreur : Risque de surcharge en cas de grande base de données
-            return _service.GetAllCustomers();
-        }
-
-        // 5. Exposition non sécurisée d'une liste sensible
-        [HttpGet("export")]
-        public IActionResult ExportCustomers()
-        {
-            // Erreur : Données exportées sans sécurisation (exposition possible d'informations sensibles)
-            var customers = _service.GetAllCustomers();
-            return File(System.Text.Encoding.UTF8.GetBytes(customers.ToString()), "text/plain", "customers.txt");
-        }
-
-        // 6. Utilisation de méthodes non sécurisées
-        [HttpGet("insecure")]
-        public string InsecureEndpoint()
-        {
-            // Erreur : Retourne une chaîne brute sans traitement, source potentielle de XSS
-            return "<script>alert('Insecure Endpoint');</script>";
+            return _service.GetAllCustomers(); // Retourne toutes les données sans filtre ni pagination
         }
     }
 }
