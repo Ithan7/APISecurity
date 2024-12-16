@@ -4,6 +4,9 @@ namespace Demo.BL
 {
     public interface IService
     {
-        public CustomerLight GetCustomer(int id);
+        CustomerLight GetCustomer(int id);
+        void AddCustomer(CustomerLight customer);
+        List<CustomerLight> GetAllCustomers();
+        void DeleteCustomer(int id);
     }
 }

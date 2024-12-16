@@ -2,6 +2,13 @@
 {
     public interface IData
     {
-        public List<Customer> GetCustomers();
+        // Récupérer tous les clients
+        List<Customer> GetCustomers();
+
+        // Ajouter un nouveau client
+        void AddCustomer(Customer customer);
+
+        // Supprimer un client
+        void DeleteCustomer(int id);
     }
 }
